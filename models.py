@@ -1,6 +1,6 @@
 import os
 
-from sqlalchemy import BINARY, Column, DateTime, Integer, String
+from sqlalchemy import BINARY, Column, DateTime, Integer, String, Text
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -40,20 +40,24 @@ def create_tables():
 class Image(BaseModel):
     __tablename__ = "image"
     id = Column(Integer, primary_key=True, index=True)
-    path = Column(String(4096), index=True)  # 文件路径
+    path = Column(String(255), index=True)  # 文件路径
+    original_name = Column(String(255))  # 原始文件名
     modify_time = Column(DateTime, index=True)  # 文件修改时间
     features = Column(BINARY)  # 文件预处理后的二进制数据
-    checksum = Column(String(40), index=True)  # 文件SHA1
+    checksum = Column(String(64), index=True)  # 文件SHA1
+    tags = Column(String(1024))  # 标签信息，JSON格式存储
 
 
 class Video(BaseModel):
     __tablename__ = "video"
     id = Column(Integer, primary_key=True, index=True)
-    path = Column(String(4096), index=True)  # 文件路径
+    path = Column(String(255), index=True)  # 文件路径
+    original_name = Column(String(255))  # 原始文件名
     frame_time = Column(Integer)  # 这一帧所在的时间
     modify_time = Column(DateTime, index=True)  # 文件修改时间
     features = Column(BINARY)  # 文件预处理后的二进制数据
-    checksum = Column(String(40), index=True)  # 文件SHA1
+    checksum = Column(String(64), index=True)  # 文件SHA1
+    tags = Column(String(1024))  # 标签信息，JSON格式存储
 
 
 class PexelsVideo(BaseModelPexelsVideo):

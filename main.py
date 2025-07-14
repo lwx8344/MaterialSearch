@@ -34,6 +34,18 @@ def init():
     清理和创建临时文件夹，初始化扫描线程（包括数据库初始化），根据AUTO_SCAN决定是否开启自动扫描线程
     """
     global scanner
+    
+    # 运行数据库迁移
+    try:
+        from database_migration import init_database
+        logger.info("开始数据库迁移...")
+        if init_database():
+            logger.info("数据库迁移完成")
+        else:
+            logger.error("数据库迁移失败")
+    except Exception as e:
+        logger.error(f"数据库迁移出错: {e}")
+    
     # 检查ASSETS_PATH是否存在
     for path in ASSETS_PATH:
         if not os.path.isdir(path):

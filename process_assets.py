@@ -5,6 +5,7 @@ import traceback
 import cv2
 import numpy as np
 import requests
+import torch
 from PIL import Image
 from tqdm import trange
 from transformers import AutoModelForZeroShotImageClassification, AutoProcessor
