@@ -136,6 +136,17 @@ def api_status():
     result = scanner.get_status()
     with DatabaseSessionPexelsVideo() as session:
         result["total_pexels_videos"] = get_pexels_video_count(session)
+    
+    # 检查模型状态
+    try:
+        from process_assets import model, processor
+        result["model_loaded"] = model is not None and processor is not None
+        result["model_name"] = MODEL_NAME if model is not None else None
+    except Exception as e:
+        result["model_loaded"] = False
+        result["model_name"] = None
+        logger.warning(f"模型状态检查失败: {e}")
+    
     return jsonify(result)
 
 

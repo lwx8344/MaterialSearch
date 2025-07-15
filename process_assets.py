@@ -1,6 +1,10 @@
 # 预处理图片和视频，建立索引，加快搜索速度
 import logging
 import traceback
+import os
+import time
+from functools import lru_cache
+from io import BytesIO
 
 import cv2
 import numpy as np
@@ -14,10 +18,92 @@ from config import *
 
 logger = logging.getLogger(__name__)
 
-logger.info("Loading model...")
-model = AutoModelForZeroShotImageClassification.from_pretrained(MODEL_NAME).to(DEVICE)
-processor = AutoProcessor.from_pretrained(MODEL_NAME)
-logger.info("Model loaded.")
+# 设置环境变量以支持离线模式
+os.environ.setdefault('HF_HUB_OFFLINE', '0')
+os.environ.setdefault('TRANSFORMERS_OFFLINE', '0')
+
+def load_model_with_retry(model_name, max_retries=3, timeout=60):
+    """
+    带重试机制的模型加载函数
+    """
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"正在加载模型 {model_name} (尝试 {attempt + 1}/{max_retries})...")
+            
+            # 设置更长的超时时间
+            model = AutoModelForZeroShotImageClassification.from_pretrained(
+                model_name, 
+                local_files_only=False,
+                trust_remote_code=True
+            ).to(DEVICE)
+            
+            processor = AutoProcessor.from_pretrained(
+                model_name,
+                local_files_only=False,
+                trust_remote_code=True
+            )
+            
+            logger.info("模型加载成功！")
+            return model, processor
+            
+        except Exception as e:
+            error_msg = str(e)
+            logger.warning(f"模型加载失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
+            
+            if "timeout" in error_msg.lower() or "connection" in error_msg.lower():
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 15  # 递增等待时间
+                    logger.info(f"网络超时，等待 {wait_time} 秒后重试...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error("网络连接失败，尝试使用离线模式...")
+                    return load_model_offline(model_name)
+            else:
+                # 其他错误，直接抛出
+                raise e
+    
+    # 如果所有重试都失败
+    logger.error("所有重试都失败，尝试使用离线模式...")
+    return load_model_offline(model_name)
+
+def load_model_offline(model_name):
+    """
+    离线模式加载模型
+    """
+    try:
+        logger.info("尝试离线模式加载模型...")
+        
+        # 设置离线模式
+        os.environ['HF_HUB_OFFLINE'] = '1'
+        os.environ['TRANSFORMERS_OFFLINE'] = '1'
+        
+        model = AutoModelForZeroShotImageClassification.from_pretrained(
+            model_name,
+            local_files_only=True
+        ).to(DEVICE)
+        
+        processor = AutoProcessor.from_pretrained(
+            model_name,
+            local_files_only=True
+        )
+        
+        logger.info("离线模式加载成功！")
+        return model, processor
+        
+    except Exception as e:
+        logger.error(f"离线模式也失败: {e}")
+        raise Exception(f"无法加载模型 {model_name}，请检查网络连接或模型文件是否存在。错误: {e}")
+
+# 尝试加载模型
+try:
+    model, processor = load_model_with_retry(MODEL_NAME)
+except Exception as e:
+    logger.error(f"模型加载完全失败: {e}")
+    # 如果完全失败，创建一个占位符，让程序可以启动但功能受限
+    model = None
+    processor = None
+    logger.warning("模型加载失败，搜索功能将不可用。请检查网络连接或手动下载模型文件。")
 
 
 def get_image_feature(images):
@@ -27,6 +113,12 @@ def get_image_feature(images):
     """
     if images is None or len(images) == 0:
         return None
+    
+    # 检查模型是否已加载
+    if model is None or processor is None:
+        logger.error("模型未加载，无法处理图片")
+        return None
+    
     features = None
     try:
         inputs = processor(images=images, return_tensors="pt")["pixel_values"].to(DEVICE)
@@ -114,7 +206,10 @@ def process_web_image(url):
     :return: <class 'numpy.nparray'>, 图片特征
     """
     try:
-        image = Image.open(requests.get(url, stream=True).raw)
+        response = requests.get(url, stream=True)
+        response.raise_for_status()  # 检查HTTP错误
+        image_data = response.content
+        image = Image.open(BytesIO(image_data))
     except Exception as e:
         logger.warning("获取图片报错：%s %s" % (url, repr(e)))
         return None
@@ -193,6 +288,12 @@ def process_text(input_text):
     feature = None
     if not input_text:
         return None
+    
+    # 检查模型是否已加载
+    if model is None or processor is None:
+        logger.error("模型未加载，无法处理文字")
+        return None
+    
     try:
         text = processor(text=input_text, return_tensors="pt", padding=True)["input_ids"].to(DEVICE)
         feature = model.get_text_features(text)
